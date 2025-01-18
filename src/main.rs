@@ -1,7 +1,7 @@
 use std::{
     env::current_dir,
-    ffi::OsStr,
-    fs,
+    ffi::{OsStr, OsString},
+    fs, iter,
     path::{Path, PathBuf},
     process::{Command, ExitCode, Stdio},
     sync::atomic::{AtomicUsize, Ordering},
@@ -17,19 +17,31 @@ use tmuxy::{
 
 lazy_static::lazy_static! {
     pub static ref WORKING_DIR: PathBuf = current_dir().unwrap();
+    pub static ref ARGUMENTS: Arguments = Arguments::parse();
 }
 
 fn tmux_command_status(
     args: impl IntoIterator<Item = impl AsRef<OsStr>>,
 ) -> color_eyre::Result<()> {
-    let status = Command::new("tmux")
-        .args(args)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()?;
+    if ARGUMENTS.dry_run {
+        let arguments: Vec<_> = iter::once(OsString::from("tmux"))
+            .chain(args.into_iter().map(|s| s.as_ref().to_owned()))
+            .map(|s| s.to_string_lossy().to_string())
+            .collect();
 
-    if !status.success() {
-        bail!("Failed executing command: {status}");
+        let arguments = arguments.iter().map(String::as_str).collect::<Vec<_>>();
+
+        println!("{}", shellwords::join(&arguments));
+    } else {
+        let status = Command::new("tmux")
+            .args(args)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()?;
+
+        if !status.success() {
+            bail!("Failed executing command: {status}");
+        }
     }
 
     Ok(())
@@ -71,37 +83,54 @@ fn tmux_respawn_pane(
     tmux_command_status(args)?;
 
     if let Some(command) = command {
-        tmux_command_status(["send-keys", "-t", &pane_id_str, "-l", command])?;
+        let command = format!("{command}\n");
+        tmux_command_status(["send-keys", "-t", &pane_id_str, "-l", &command])?;
     }
 
     Ok(())
 }
 
 fn tmux_attach(session: &str) -> color_eyre::Result<ExitCode> {
-    let status = Command::new("tmux")
-        .arg("attach-session")
-        .arg("-t")
-        .arg(session)
-        .status()?;
-
-    if status.success() {
+    if ARGUMENTS.dry_run {
+        println!(
+            "{}",
+            shellwords::join(&["tmux", "attach-session", "-t", session])
+        );
         Ok(ExitCode::SUCCESS)
     } else {
-        Ok(ExitCode::FAILURE)
+        let status = Command::new("tmux")
+            .arg("attach-session")
+            .arg("-t")
+            .arg(session)
+            .status()?;
+
+        if status.success() {
+            Ok(ExitCode::SUCCESS)
+        } else {
+            Ok(ExitCode::FAILURE)
+        }
     }
 }
 
 fn tmux_kill(session: &str) -> color_eyre::Result<ExitCode> {
-    let status = Command::new("tmux")
-        .arg("kill-session")
-        .arg("-t")
-        .arg(session)
-        .status()?;
-
-    if status.success() {
+    if ARGUMENTS.dry_run {
+        println!(
+            "{}",
+            shellwords::join(&["tmux", "kill-session", "-t", session])
+        );
         Ok(ExitCode::SUCCESS)
     } else {
-        Ok(ExitCode::FAILURE)
+        let status = Command::new("tmux")
+            .arg("kill-session")
+            .arg("-t")
+            .arg(session)
+            .status()?;
+
+        if status.success() {
+            Ok(ExitCode::SUCCESS)
+        } else {
+            Ok(ExitCode::FAILURE)
+        }
     }
 }
 
@@ -118,7 +147,7 @@ fn open(arguments: &OpenArguments, config: Config) -> color_eyre::Result<ExitCod
 
     let session_exists = tmux_command_status(["has-session", "-t", session_name]).is_ok();
 
-    if session_exists {
+    if session_exists && !ARGUMENTS.dry_run {
         if arguments.recreate {
             tmux_command_status(["kill-session", "-t", session_name])?;
         } else {
@@ -203,28 +232,26 @@ fn update() -> color_eyre::Result<ExitCode> {
 fn main() -> color_eyre::Result<ExitCode> {
     color_eyre::install()?;
 
-    let arguments = Arguments::parse();
-
-    if !fs::exists(&arguments.config)? {
-        if let Some(parent) = arguments.config.parent() {
+    if !fs::exists(&ARGUMENTS.config)? {
+        if let Some(parent) = ARGUMENTS.config.parent() {
             fs::create_dir_all(parent)?;
         }
-        fs::write(&arguments.config, include_bytes!("../default_config.toml"))?;
+        fs::write(&ARGUMENTS.config, include_bytes!("../default_config.toml"))?;
     }
 
-    if fs::metadata(&arguments.config)?.is_dir() {
-        bail!("Config file at {:?} is a directory.", arguments.config);
+    if fs::metadata(&ARGUMENTS.config)?.is_dir() {
+        bail!("Config file at {:?} is a directory.", ARGUMENTS.config);
     }
 
-    let config = parse_config(&arguments.config)?;
+    let config = parse_config(&ARGUMENTS.config)?;
 
-    let result = match &arguments.command {
+    let result = match &ARGUMENTS.command {
         args::Command::Open(open_arguments) => open(open_arguments, config),
         args::Command::Close { workspace } => tmux_kill(workspace),
         args::Command::Update => update(),
     };
 
-    if !matches!(arguments.command, args::Command::Update)
+    if !matches!(ARGUMENTS.command, args::Command::Update)
         && AxoUpdater::new_for("tmuxy")
             .load_receipt()?
             .is_update_needed_sync()?

@@ -10,18 +10,18 @@ bounded_integer::bounded_integer! {
     pub struct Percent { 0..=100 }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 pub struct Config {
     #[serde(rename = "workspace")]
     pub workspaces: HashMap<String, Workspace>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 pub struct Workspace {
     pub windows: Vec<Window>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 pub struct Window {
     #[serde(default)]
     pub name: Option<String>,
@@ -29,8 +29,8 @@ pub struct Window {
     pub pane: Pane,
 }
 
-#[derive(Deserialize)]
-#[serde(untagged)]
+#[derive(Deserialize, Debug)]
+#[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Pane {
     Leaf {
         #[serde(default)]
@@ -88,7 +88,8 @@ fn pane_default_percent() -> Percent {
     Percent::new(50).unwrap()
 }
 
-#[derive(Clone, Copy, Deserialize)]
+#[derive(Clone, Copy, Deserialize, Debug)]
+#[serde(rename_all = "snake_case")]
 pub enum Direction {
     Vertical,
     Horizontal,

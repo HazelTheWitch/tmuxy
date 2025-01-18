@@ -11,6 +11,9 @@ pub struct Arguments {
     /// Config file location
     #[arg(short, long, env = "TMUXY_CONFIG", default_value = default_config_path().into_os_string())]
     pub config: PathBuf,
+    /// Only print commands and do not run anything
+    #[arg(short, long)]
+    pub dry_run: bool,
     #[command(subcommand)]
     pub command: Command,
 }
