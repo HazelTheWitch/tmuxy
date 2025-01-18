@@ -2,8 +2,19 @@
 name = "tmuxy"
 version = "0.1.0"
 edition = "2021"
+description = "tmux workspace manager with declarative config file"
+authors = ["Hazel Rella <hazelrella11@gmail.com>"]
+repository = "https://github.com/HazelTheWitch/tmuxy"
+license = "GPL-3.0-or-later"
+
+[package.metadata.wix]
+upgrade-guid = "0C224C3A-5CCB-4786-A928-138BC5F2C1DC"
+path-guid = "10EEF748-BA9F-4045-862B-CCFF0CB4BB88"
+license = false
+eula = false
 
 [dependencies]
+axoupdater = { version = "0.9.0", features = ["blocking"] }
 bounded-integer = { version = "0.5.7", features = ["macro", "serde1"] }
 clap = { version = "4.5.26", features = ["derive", "env", "string"] }
 color-eyre = "0.6.3"
@@ -11,3 +22,8 @@ directories = "6.0.0"
 lazy_static = "1.5.0"
 serde = { version = "1.0.217", features = ["derive"] }
 toml = "0.8.19"
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"

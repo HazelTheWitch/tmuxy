@@ -7,11 +7,12 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
+use axoupdater::AxoUpdater;
 use clap::Parser;
 use color_eyre::eyre::bail;
 use tmuxy::{
-    args::Arguments,
-    config::{parse_config, Direction, Percent},
+    args::{self, Arguments, OpenArguments},
+    config::{parse_config, Config, Direction, Percent},
 };
 
 lazy_static::lazy_static! {
@@ -90,24 +91,21 @@ fn tmux_attach(session: &str) -> color_eyre::Result<ExitCode> {
     }
 }
 
-fn main() -> color_eyre::Result<ExitCode> {
-    color_eyre::install()?;
+fn tmux_kill(session: &str) -> color_eyre::Result<ExitCode> {
+    let status = Command::new("tmux")
+        .arg("kill-session")
+        .arg("-t")
+        .arg(session)
+        .status()?;
 
-    let arguments = Arguments::parse();
-
-    if !fs::exists(&arguments.config)? {
-        if let Some(parent) = arguments.config.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        fs::write(&arguments.config, include_bytes!("../default_config.toml"))?;
+    if status.success() {
+        Ok(ExitCode::SUCCESS)
+    } else {
+        Ok(ExitCode::FAILURE)
     }
+}
 
-    if fs::metadata(&arguments.config)?.is_dir() {
-        bail!("Config file at {:?} is a directory.", arguments.config);
-    }
-
-    let config = parse_config(&arguments.config)?;
-
+fn open(arguments: &OpenArguments, config: Config) -> color_eyre::Result<ExitCode> {
     let Some(workspace) = config.workspaces.get(&arguments.workspace) else {
         bail!("Workspace {} does not exist", &arguments.workspace);
     };
@@ -184,4 +182,55 @@ fn main() -> color_eyre::Result<ExitCode> {
     }
 
     tmux_attach(session_name)
+}
+
+fn update() -> color_eyre::Result<ExitCode> {
+    if let Some(result) = AxoUpdater::new_for("tmuxy").load_receipt()?.run_sync()? {
+        let version_note = if let Some(old) = result.old_version {
+            format!("{old} -> {}", result.new_version)
+        } else {
+            format!("{}", result.new_version)
+        };
+
+        eprintln!("tmuxy has been successfully updated ({version_note})");
+    } else {
+        eprintln!("tmuxy is already up to date");
+    }
+
+    Ok(ExitCode::SUCCESS)
+}
+
+fn main() -> color_eyre::Result<ExitCode> {
+    color_eyre::install()?;
+
+    let arguments = Arguments::parse();
+
+    if !fs::exists(&arguments.config)? {
+        if let Some(parent) = arguments.config.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(&arguments.config, include_bytes!("../default_config.toml"))?;
+    }
+
+    if fs::metadata(&arguments.config)?.is_dir() {
+        bail!("Config file at {:?} is a directory.", arguments.config);
+    }
+
+    let config = parse_config(&arguments.config)?;
+
+    let result = match &arguments.command {
+        args::Command::Open(open_arguments) => open(open_arguments, config),
+        args::Command::Close { workspace } => tmux_kill(workspace),
+        args::Command::Update => update(),
+    };
+
+    if !matches!(arguments.command, args::Command::Update)
+        && AxoUpdater::new_for("tmuxy")
+            .load_receipt()?
+            .is_update_needed_sync()?
+    {
+        eprintln!("new update found for tmuxy, consider running `tmuxy update` to update");
+    }
+
+    result
 }

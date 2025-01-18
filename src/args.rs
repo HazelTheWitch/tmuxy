@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use clap::Parser;
+use clap::{Args, Parser, Subcommand};
 
 use crate::PROJECT_DIRS;
 
@@ -11,6 +11,28 @@ pub struct Arguments {
     /// Config file location
     #[arg(short, long, env = "TMUXY_CONFIG", default_value = default_config_path().into_os_string())]
     pub config: PathBuf,
+    #[command(subcommand)]
+    pub command: Command,
+}
+
+#[derive(Subcommand)]
+pub enum Command {
+    /// Open a workspace
+    #[command(alias = "o")]
+    Open(OpenArguments),
+    /// Close a workspace
+    #[command(alias = "c")]
+    Close {
+        /// Workspace to close
+        #[arg(default_value = "default")]
+        workspace: String,
+    },
+    #[command(alias = "u")]
+    Update,
+}
+
+#[derive(Args)]
+pub struct OpenArguments {
     /// Workspace to load
     #[arg(default_value = "default")]
     pub workspace: String,
